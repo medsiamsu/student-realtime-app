@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>📊 ระบบตอบคำถาม Realtime (ครบทุกรอบ)</title>
+<title>📊 ระบบตอบคำถาม Realtime</title>
 
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -11,20 +11,75 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <style>
-body{font-family:'Sarabun',sans-serif;background:#e0e7ff;margin:0;display:flex;justify-content:center}
-.container{background:#fff;margin:20px;padding:20px;border-radius:16px;width:100%;max-width:900px;text-align:center}
+body{
+  font-family:'Sarabun',sans-serif;
+  background:#e0e7ff;
+  margin:0;
+  display:flex;
+  justify-content:center;
+}
+.container{
+  background:#fff;
+  margin:20px;
+  padding:20px;
+  border-radius:16px;
+  width:100%;
+  max-width:950px;
+  text-align:center;
+}
 .hidden{display:none}
-button{padding:10px 18px;border-radius:8px;border:0;color:#fff;margin:5px;cursor:pointer}
+button{
+  padding:10px 18px;
+  border-radius:8px;
+  border:0;
+  color:#fff;
+  margin:5px;
+  cursor:pointer
+}
 .btn-primary{background:#2563eb}
 .btn-green{background:#10b981}
 .btn-purple{background:#8b5cf6}
 .btn-red{background:#ef4444}
-input{padding:10px;border-radius:8px;border:1px solid #ccc;width:200px}
-.choices button{width:55px;height:55px;border-radius:50%;background:#f1f5f9;color:#000;border:2px solid #cbd5e1}
-.choices button.selected{background:#2563eb;color:#fff}
-.responses-list{margin-top:10px;border:1px solid #ddd;border-radius:10px;max-height:300px;overflow:auto}
-.response-item{display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #eee}
-canvas{max-width:100%;margin-top:25px}
+button:disabled{opacity:.5;cursor:not-allowed}
+
+input,select{
+  padding:10px;
+  border-radius:8px;
+  border:1px solid #ccc;
+  width:220px;
+  margin-bottom:8px;
+}
+
+.choices button{
+  width:55px;height:55px;border-radius:50%;
+  background:#f1f5f9;color:#000;
+  border:2px solid #cbd5e1;
+}
+.choices button.selected{
+  background:#2563eb;color:#fff;
+}
+
+.responses-list{
+  margin-top:10px;
+  border:1px solid #ddd;
+  border-radius:10px;
+  max-height:300px;
+  overflow:auto;
+  text-align:left;
+}
+.response-item{
+  display:flex;
+  justify-content:space-between;
+  padding:6px 10px;
+  border-bottom:1px solid #eee;
+}
+
+.chart-box{
+  margin-top:30px;
+  padding:15px;
+  border:1px solid #e5e7eb;
+  border-radius:12px;
+}
 </style>
 </head>
 <body>
@@ -33,7 +88,7 @@ canvas{max-width:100%;margin-top:25px}
 
 <!-- HOME -->
 <div id="homePage">
-  <h1>📘 ระบบตอบคำถาม Realtime (ครบทุกรอบ)</h1>
+  <h1>📘 ระบบตอบคำถาม Realtime</h1>
   <h3>รอบปัจจุบัน: <span id="currentRoundLabel"></span></h3>
   <button class="btn-green" id="toStudent">🎓 นักศึกษา</button>
   <button class="btn-purple" id="toTeacher">👩‍🏫 อาจารย์</button>
@@ -44,8 +99,8 @@ canvas{max-width:100%;margin-top:25px}
   <h2>🎓 นักศึกษา</h2>
   <p>รอบปัจจุบัน: <b id="roundStudent"></b></p>
 
-  <input id="room" placeholder="ห้องเรียน"><br><br>
-  <input id="student_id" placeholder="รหัสนักศึกษา"><br><br>
+  <input id="room" placeholder="ห้องเรียน"><br>
+  <input id="student_id" placeholder="รหัสนักศึกษา"><br>
 
   <div class="choices">
     <button data-c="A">A</button>
@@ -57,7 +112,8 @@ canvas{max-width:100%;margin-top:25px}
 
   <button class="btn-green" id="submitBtn">ส่งคำตอบ</button>
   <button class="btn-primary" id="backHome1">🏠 กลับ</button>
-  <p id="status"></p>
+
+  <div id="status"></div>
 </div>
 
 <!-- TEACHER -->
@@ -66,9 +122,16 @@ canvas{max-width:100%;margin-top:25px}
   <p>รอบปัจจุบัน: <b id="roundTeacher"></b></p>
 
   <button class="btn-red" id="newRoundBtn">➕ เริ่มรอบใหม่</button>
-  <button class="btn-green" id="exportExcelBtn">Export Excel</button>
+  <button class="btn-red" id="resetAllBtn">♻️ รีเซ็ตระบบทั้งหมด</button>
+  <button class="btn-green" id="exportExcelBtn">📥 Export Excel</button>
 
-  <canvas id="pieChart"></canvas>
+  <br><br>
+  <label>เลือกดูรอบ:</label>
+  <select id="roundFilter">
+    <option value="all">ทุกรอบ</option>
+  </select>
+
+  <div id="chartsContainer"></div>
   <div id="responsesList" class="responses-list"></div>
 
   <button class="btn-primary" id="backHome2">🏠 กลับ</button>
@@ -78,138 +141,238 @@ canvas{max-width:100%;margin-top:25px}
 
 <script>
 // ================= Supabase =================
-const SUPABASE_URL = "https://ebqmunvfantlffbqvybx.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVicW11bnZmYW50bGZmYnF2eWJ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5NTcsImV4cCI6MjA3ODQ5MTk1N30.wg4AkJTrhCYqwM9YbG8SvAuB7HNOpNmbYJTU_2RBASo";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = window.supabase.createClient(
+  "https://ebqmunvfantlffbqvybx.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVicW11bnZmYW50bGZmYnF2eWJ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5NTcsImV4cCI6MjA3ODQ5MTk1N30.wg4AkJTrhCYqwM9YbG8SvAuB7HNOpNmbYJTU_2RBASo"
+);
 
-// ================= Variables =================
+// ================= State =================
 let currentRound = 1;
+let roundOpen = true;
 let selected = null;
-let pieChart;
+
+const chartsByRound = {};
+const roundCounts = {};
 
 // ================= Sync Round =================
 async function syncRound(){
-  const { data } = await supabase.from("round_control").select("current_round").eq("id",1).single();
-  if(data) currentRound = data.current_round || 1;
+  const { data } = await supabase
+    .from("round_control")
+    .select("current_round,is_open")
+    .eq("id",1)
+    .single();
+
+  currentRound = data.current_round;
+  roundOpen = data.is_open;
   updateRoundUI();
 }
-syncRound();
-
-// Realtime round update
-supabase.channel("round")
-  .on("postgres_changes",{event:"UPDATE",schema:"public",table:"round_control"},payload=>{
-    currentRound = payload.new.current_round;
-    updateRoundUI();
-    loadAll();
-  }).subscribe();
 
 function updateRoundUI(){
   currentRoundLabel.innerText = currentRound;
   roundStudent.innerText = currentRound;
   roundTeacher.innerText = currentRound;
+  submitBtn.disabled = !roundOpen;
 }
 
-// ================= NAVIGATION =================
-toStudent.onclick = ()=>{ homePage.classList.add("hidden"); studentPage.classList.remove("hidden"); }
-toTeacher.onclick = ()=>{
-  if(prompt("รหัสอาจารย์") === "2568"){
-    homePage.classList.add("hidden"); teacherPage.classList.remove("hidden"); loadAll();
-  }
-}
-backHome1.onclick = ()=>{ studentPage.classList.add("hidden"); homePage.classList.remove("hidden"); }
-backHome2.onclick = ()=>{ teacherPage.classList.add("hidden"); homePage.classList.remove("hidden"); }
+syncRound();
 
-// ================= CHOICES =================
-document.querySelectorAll(".choices button").forEach(b=>{
-  b.onclick = ()=>{
-    document.querySelectorAll(".choices button").forEach(x=>x.classList.remove("selected"));
-    b.classList.add("selected");
-    selected = b.dataset.c;
+supabase.channel("round-rt")
+.on("postgres_changes",
+ { event:"UPDATE", schema:"public", table:"round_control" },
+ payload=>{
+   currentRound = payload.new.current_round;
+   roundOpen = payload.new.is_open;
+   updateRoundUI();
+ })
+.subscribe();
+
+// ================= NAV =================
+toStudent.onclick=()=>{
+  homePage.classList.add("hidden");
+  studentPage.classList.remove("hidden");
+};
+toTeacher.onclick=()=>{
+  if(prompt("รหัสอาจารย์")==="2568"){
+    homePage.classList.add("hidden");
+    teacherPage.classList.remove("hidden");
+    initialLoad();
   }
+};
+backHome1.onclick=()=>location.reload();
+backHome2.onclick=()=>location.reload();
+
+// ================= Choices =================
+document.querySelectorAll(".choices button").forEach(btn=>{
+  btn.onclick=()=>{
+    document.querySelectorAll(".choices button").forEach(b=>b.classList.remove("selected"));
+    btn.classList.add("selected");
+    selected=btn.dataset.c;
+  };
 });
 
-// ================= SUBMIT =================
-submitBtn.onclick = async ()=>{
-  const roomEl = document.getElementById("room");
-  const studentEl = document.getElementById("student_id");
-  const statusEl = document.getElementById("status");
-
-  const room = roomEl.value.trim();
-  const student_id = studentEl.value.trim();
-  if(!room || !student_id || !selected) return alert("กรอกข้อมูลให้ครบ");
-
-  // ✅ ตรวจสอบและสร้างรอบใน round_control ก่อน
-  await supabase.from("round_control").upsert({id: currentRound, current_round: currentRound, updated_at: new Date()});
-
-  // ✅ กันส่งซ้ำต่อรอบ
-  const { data: dup } = await supabase
-    .from("attendance")
-    .select("id")
-    .eq("student_id", student_id)
-    .eq("round_id", currentRound)
-    .maybeSingle();
-
-  if(dup){
-    statusEl.innerText = "⚠️ คุณส่งรอบนี้แล้ว";
+// ================= Submit =================
+submitBtn.onclick=async()=>{
+  if(!room.value||!student_id.value||!selected){
+    alert("กรอกข้อมูลให้ครบ");
     return;
   }
 
-  // Insert attendance
-  const { error } = await supabase.from("attendance").insert([{
-    room, student_id, choice: selected, round_id: currentRound, question_number:1, answered_at: new Date()
-  }]);
+  const { error } = await supabase.from("attendance").insert({
+    room:room.value,
+    student_id:student_id.value,
+    round_id:currentRound,
+    question_number:1,
+    choice:selected
+  });
 
-  if(error){
-    alert("❌ บันทึกไม่สำเร็จ: "+error.message);
-    return;
-  }
-  statusEl.innerText = "✅ ส่งคำตอบแล้ว";
-}
+  status.innerText = error
+    ? "⚠️ คุณส่งรอบนี้แล้ว"
+    : "✅ ส่งคำตอบแล้ว";
+};
 
-// ================= Realtime Attendance =================
-supabase.channel("attendance")
-  .on("postgres_changes",{event:"INSERT",schema:"public",table:"attendance"},()=>loadAll())
-  .subscribe();
-
-// ================= Load Data =================
-async function loadAll(){
+// ================= Initial Load =================
+async function initialLoad(){
   const { data } = await supabase
     .from("attendance")
-    .select("*")
-    .order("answered_at",{ascending:true});
+    .select("round_id,choice,student_id,room")
+    .order("round_id");
 
-  responsesList.innerHTML = data.map(r=>`
-    <div class="response-item">
-      <span>${r.student_id} (${r.room})</span>
-      <b>${r.choice}</b>
-      <span>รอบ: ${r.round_id}</span>
-    </div>`).join("");
+  responsesList.innerHTML = "";
+  roundFilter.innerHTML = `<option value="all">ทุกรอบ</option>`;
 
-  const counts={A:0,B:0,C:0,D:0,E:0};
-  data.forEach(r=> counts[r.choice]++);
+  data.forEach(r=>{
+    if(!roundCounts[r.round_id]){
+      roundCounts[r.round_id]={A:0,B:0,C:0,D:0,E:0};
+      roundFilter.innerHTML+=`<option value="${r.round_id}">รอบ ${r.round_id}</option>`;
+    }
+    roundCounts[r.round_id][r.choice]++;
 
-  pieChart?.destroy();
-  pieChart = new Chart(document.getElementById("pieChart"),{
-    type:"pie",
-    data:{labels:Object.keys(counts),datasets:[{data:Object.values(counts)}]}
+    responsesList.innerHTML+=`
+      <div class="response-item">
+        <span>${r.student_id} (${r.room})</span>
+        <b>${r.choice}</b>
+        <span>รอบ ${r.round_id}</span>
+      </div>`;
+  });
+
+  Object.keys(roundCounts).forEach(r=>{
+    renderChart(r, roundCounts[r]);
   });
 }
 
-// ================= EXPORT =================
-exportExcelBtn.onclick = async ()=>{
-  const { data } = await supabase.from("attendance").select("*");
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),`ALL_ROUNDS`);
-  XLSX.writeFile(wb, `attendance_all_rounds.xlsx`);
+// ================= Chart =================
+function renderChart(round, counts){
+  if(chartsByRound[round]){
+    chartsByRound[round].data.datasets[0].data = Object.values(counts);
+    chartsByRound[round].update();
+    return;
+  }
+
+  const box=document.createElement("div");
+  box.className="chart-box";
+  box.dataset.round=round;
+  box.innerHTML=`<h4>รอบที่ ${round}</h4>`;
+
+  const canvas=document.createElement("canvas");
+  box.appendChild(canvas);
+  chartsContainer.appendChild(box);
+
+  chartsByRound[round]=new Chart(canvas,{
+    type:"pie",
+    data:{
+      labels:Object.keys(counts),
+      datasets:[{data:Object.values(counts)}]
+    }
+  });
 }
 
-// ================= NEW ROUND =================
-newRoundBtn.onclick = async ()=>{
-  currentRound++;
-  // สร้างรอบใหม่ใน round_control เพื่อให้ FK ถูกต้อง
-  await supabase.from("round_control").upsert({id: currentRound, current_round: currentRound, updated_at: new Date()});
-  alert("✅ เริ่มรอบใหม่แล้ว: "+currentRound);
-}
+// ================= Filter =================
+roundFilter.onchange=()=>{
+  document.querySelectorAll(".chart-box").forEach(b=>{
+    b.style.display =
+      roundFilter.value==="all" || b.dataset.round===roundFilter.value
+      ? "block" : "none";
+  });
+};
+
+// ================= Realtime INSERT =================
+supabase.channel("attendance-rt")
+.on("postgres_changes",
+ { event:"INSERT", schema:"public", table:"attendance" },
+ payload=>{
+   const r = payload.new;
+
+   if(!roundCounts[r.round_id]){
+     roundCounts[r.round_id]={A:0,B:0,C:0,D:0,E:0};
+     roundFilter.innerHTML+=`<option value="${r.round_id}">รอบ ${r.round_id}</option>`;
+   }
+
+   roundCounts[r.round_id][r.choice]++;
+   renderChart(r.round_id, roundCounts[r.round_id]);
+
+   responsesList.insertAdjacentHTML("afterbegin",`
+     <div class="response-item">
+       <span>${r.student_id} (${r.room})</span>
+       <b>${r.choice}</b>
+       <span>รอบ ${r.round_id}</span>
+     </div>
+   `);
+ }).subscribe();
+
+// ================= Reset All =================
+resetAllBtn.onclick = async () => {
+  if (!confirm("⚠️ จะลบข้อมูลทั้งหมดและเริ่มใหม่จริงหรือไม่?")) return;
+
+  await supabase.rpc("truncate_attendance");
+
+  await supabase
+    .from("round_control")
+    .update({ current_round: 1, is_open: true })
+    .eq("id", 1);
+
+  Object.values(chartsByRound).forEach(c=>c.destroy());
+  Object.keys(chartsByRound).forEach(k=>delete chartsByRound[k]);
+  Object.keys(roundCounts).forEach(k=>delete roundCounts[k]);
+
+  chartsContainer.innerHTML="";
+  responsesList.innerHTML="";
+  roundFilter.innerHTML=`<option value="all">ทุกรอบ</option>`;
+
+  await syncRound();
+
+  alert("✅ รีเซ็ตระบบเรียบร้อย");
+};
+
+// ================= New Round =================
+newRoundBtn.onclick=async()=>{
+  await supabase.from("round_control")
+    .update({current_round:currentRound+1,is_open:true})
+    .eq("id",1);
+
+  await syncRound();
+};
+
+// ================= Export Excel =================
+exportExcelBtn.onclick=async()=>{
+  const { data } = await supabase.from("attendance").select("*");
+  const wb=XLSX.utils.book_new();
+  const grouped={};
+
+  data.forEach(r=>{
+    if(!grouped[r.round_id]) grouped[r.round_id]=[];
+    grouped[r.round_id].push(r);
+  });
+
+  Object.keys(grouped).forEach(r=>{
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(grouped[r]),
+      "Round_"+r
+    );
+  });
+
+  XLSX.writeFile(wb,"attendance_by_round.xlsx");
+};
 </script>
 </body>
 </html>
