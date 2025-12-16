@@ -80,6 +80,13 @@ input,select{
   border:1px solid #e5e7eb;
   border-radius:12px;
 }
+
+#status{
+  margin-top:12px;
+  font-weight:600;
+  font-size:18px;
+}
+
 </style>
 </head>
 <body>
@@ -142,8 +149,8 @@ input,select{
 <script>
 // ================= Supabase =================
 const supabase = window.supabase.createClient(
-  "https://ebqmunvfantlffbqvybx.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVicW11bnZmYW50bGZmYnF2eWJ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI5MTU5NTcsImV4cCI6MjA3ODQ5MTk1N30.wg4AkJTrhCYqwM9YbG8SvAuB7HNOpNmbYJTU_2RBASo"
+  "https://dmubpvmqslemshqlbcsy.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRtdWJwdm1xc2xlbXNocWxiY3N5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU4MzM0NDcsImV4cCI6MjA4MTQwOTQ0N30.yS9xv2SA8ofmlTt4vr5oBsc5pQ8aOyyzltaLmJ2jSNw"
 );
 
 // ================= State =================
@@ -210,24 +217,33 @@ document.querySelectorAll(".choices button").forEach(btn=>{
   };
 });
 
+// ================= DOM =================
+const status = document.getElementById("status");
+
 // ================= Submit =================
-submitBtn.onclick=async()=>{
-  if(!room.value||!student_id.value||!selected){
+submitBtn.onclick = async () => {
+  if (!room.value || !student_id.value || !selected) {
     alert("กรอกข้อมูลให้ครบ");
     return;
   }
 
   const { error } = await supabase.from("attendance").insert({
-    room:room.value,
-    student_id:student_id.value,
-    round_id:currentRound,
-    question_number:1,
-    choice:selected
+    room: room.value,
+    student_id: student_id.value,
+    round_id: currentRound,
+    question_number: 1,
+    choice: selected
   });
 
-  status.innerText = error
-    ? "⚠️ คุณส่งรอบนี้แล้ว"
-    : "✅ ส่งคำตอบแล้ว";
+  if (error) {
+    console.error(error);
+    status.innerText = "⚠️ คุณส่งรอบนี้แล้ว";
+    status.style.color = "red";
+  } else {
+    status.innerText = "✅ ส่งคำตอบแล้ว";
+    status.style.color = "green";
+    submitBtn.disabled = true;   // 🔥 สำคัญ
+  }
 };
 
 // ================= Initial Load =================
