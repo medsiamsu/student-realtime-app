@@ -86,17 +86,16 @@ input,select{
   font-weight:600;
   font-size:18px;
 }
-
 </style>
 </head>
-<body>
 
+<body>
 <div class="container">
 
 <!-- HOME -->
 <div id="homePage">
   <h1>📘 ระบบตอบคำถาม Realtime</h1>
-  <h3>รอบปัจจุบัน: <span id="currentRoundLabel"></span></h3>
+  <h3>รอบปัจจุบัน: <span id="currentRoundLabel">-</span></h3>
   <button class="btn-green" id="toStudent">🎓 นักศึกษา</button>
   <button class="btn-purple" id="toTeacher">👩‍🏫 อาจารย์</button>
 </div>
@@ -104,7 +103,7 @@ input,select{
 <!-- STUDENT -->
 <div id="studentPage" class="hidden">
   <h2>🎓 นักศึกษา</h2>
-  <p>รอบปัจจุบัน: <b id="roundStudent"></b></p>
+  <p>รอบปัจจุบัน: <b id="roundStudent">-</b></p>
 
   <input id="room" placeholder="ห้องเรียน"><br>
   <input id="student_id" placeholder="รหัสนักศึกษา"><br>
@@ -126,11 +125,11 @@ input,select{
 <!-- TEACHER -->
 <div id="teacherPage" class="hidden">
   <h2>👩‍🏫 อาจารย์</h2>
-  <p>รอบปัจจุบัน: <b id="roundTeacher"></b></p>
+  <p>รอบปัจจุบัน: <b id="roundTeacher">-</b></p>
 
   <button class="btn-red" id="newRoundBtn">➕ เริ่มรอบใหม่</button>
   <button class="btn-red" id="resetAllBtn">♻️ รีเซ็ตระบบทั้งหมด</button>
-  <button class="btn-green" id="exportExcelBtn">📥 Export Excel</button>
+  <button class="btn-green" id="exportExcelBtn" disabled>📥 Export Excel</button>
 
   <br><br>
   <label>เลือกดูรอบ:</label>
@@ -147,21 +146,49 @@ input,select{
 </div>
 
 <script>
-// ================= Supabase =================
+/* ================= DOM ================= */
+const homePage = document.getElementById("homePage");
+const studentPage = document.getElementById("studentPage");
+const teacherPage = document.getElementById("teacherPage");
+
+const toStudent = document.getElementById("toStudent");
+const toTeacher = document.getElementById("toTeacher");
+const backHome1 = document.getElementById("backHome1");
+const backHome2 = document.getElementById("backHome2");
+
+const currentRoundLabel = document.getElementById("currentRoundLabel");
+const roundStudent = document.getElementById("roundStudent");
+const roundTeacher = document.getElementById("roundTeacher");
+
+const submitBtn = document.getElementById("submitBtn");
+const newRoundBtn = document.getElementById("newRoundBtn");
+const resetAllBtn = document.getElementById("resetAllBtn");
+const exportExcelBtn = document.getElementById("exportExcelBtn");
+
+const responsesList = document.getElementById("responsesList");
+const chartsContainer = document.getElementById("chartsContainer");
+const roundFilter = document.getElementById("roundFilter");
+
+const room = document.getElementById("room");
+const student_id = document.getElementById("student_id");
+const status = document.getElementById("status");
+
+/* ================= Supabase ================= */
 const supabase = window.supabase.createClient(
   "https://dmubpvmqslemshqlbcsy.supabase.co",
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRtdWJwdm1xc2xlbXNocWxiY3N5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU4MzM0NDcsImV4cCI6MjA4MTQwOTQ0N30.yS9xv2SA8ofmlTt4vr5oBsc5pQ8aOyyzltaLmJ2jSNw"
 );
 
-// ================= State =================
+/* ================= State ================= */
 let currentRound = 1;
 let roundOpen = true;
 let selected = null;
+let sending = false;
 
 const chartsByRound = {};
 const roundCounts = {};
 
-// ================= Sync Round =================
+/* ================= Round Sync ================= */
 async function syncRound(){
   const { data } = await supabase
     .from("round_control")
@@ -169,31 +196,26 @@ async function syncRound(){
     .eq("id",1)
     .single();
 
+  if(!data) return;
+
   currentRound = data.current_round;
   roundOpen = data.is_open;
-  updateRoundUI();
-}
 
-function updateRoundUI(){
   currentRoundLabel.innerText = currentRound;
   roundStudent.innerText = currentRound;
   roundTeacher.innerText = currentRound;
+
   submitBtn.disabled = !roundOpen;
 }
-
 syncRound();
 
 supabase.channel("round-rt")
 .on("postgres_changes",
  { event:"UPDATE", schema:"public", table:"round_control" },
- payload=>{
-   currentRound = payload.new.current_round;
-   roundOpen = payload.new.is_open;
-   updateRoundUI();
- })
-.subscribe();
+ ()=>syncRound()
+).subscribe();
 
-// ================= NAV =================
+/* ================= NAV ================= */
 toStudent.onclick=()=>{
   homePage.classList.add("hidden");
   studentPage.classList.remove("hidden");
@@ -208,7 +230,7 @@ toTeacher.onclick=()=>{
 backHome1.onclick=()=>location.reload();
 backHome2.onclick=()=>location.reload();
 
-// ================= Choices =================
+/* ================= Choices ================= */
 document.querySelectorAll(".choices button").forEach(btn=>{
   btn.onclick=()=>{
     document.querySelectorAll(".choices button").forEach(b=>b.classList.remove("selected"));
@@ -217,44 +239,68 @@ document.querySelectorAll(".choices button").forEach(btn=>{
   };
 });
 
-// ================= DOM =================
-const status = document.getElementById("status");
+/* ================= Submit ================= */
+submitBtn.onclick = async ()=>{
+  if(sending) return;
 
-// ================= Submit =================
-submitBtn.onclick = async () => {
-  if (!room.value || !student_id.value || !selected) {
+  const sid = student_id.value.trim();
+  const rm = room.value.trim();
+
+  if(!sid || !rm || !selected){
     alert("กรอกข้อมูลให้ครบ");
     return;
   }
 
+  sending = true;
+  submitBtn.disabled = true;
+  status.innerText = "⏳ กำลังส่ง...";
+  status.style.color = "#555";
+
+  const { data: exists } = await supabase
+    .from("attendance")
+    .select("id")
+    .eq("student_id", sid)
+    .eq("round_id", currentRound)
+    .eq("question_number", 1)
+    .maybeSingle();
+
+  if(exists){
+    status.innerText = "⚠️ คุณส่งรอบนี้แล้ว";
+    status.style.color = "red";
+    return;
+  }
+
   const { error } = await supabase.from("attendance").insert({
-    room: room.value,
-    student_id: student_id.value,
+    room: rm,
+    student_id: sid,
     round_id: currentRound,
     question_number: 1,
     choice: selected
   });
 
-  if (error) {
-    console.error(error);
-    status.innerText = "⚠️ คุณส่งรอบนี้แล้ว";
+  if(error){
+    status.innerText = "❌ ส่งไม่สำเร็จ";
     status.style.color = "red";
-  } else {
+    submitBtn.disabled = false;
+    sending = false;
+  }else{
     status.innerText = "✅ ส่งคำตอบแล้ว";
     status.style.color = "green";
-    submitBtn.disabled = true;   // 🔥 สำคัญ
   }
 };
 
-// ================= Initial Load =================
+/* ================= Initial Load ================= */
 async function initialLoad(){
   const { data } = await supabase
     .from("attendance")
     .select("round_id,choice,student_id,room")
     .order("round_id");
 
-  responsesList.innerHTML = "";
-  roundFilter.innerHTML = `<option value="all">ทุกรอบ</option>`;
+  responsesList.innerHTML="";
+  roundFilter.innerHTML=`<option value="all">ทุกรอบ</option>`;
+  exportExcelBtn.disabled = true;
+
+  if(!data || data.length===0) return;
 
   data.forEach(r=>{
     if(!roundCounts[r.round_id]){
@@ -262,21 +308,16 @@ async function initialLoad(){
       roundFilter.innerHTML+=`<option value="${r.round_id}">รอบ ${r.round_id}</option>`;
     }
     roundCounts[r.round_id][r.choice]++;
-
-    responsesList.innerHTML+=`
-      <div class="response-item">
-        <span>${r.student_id} (${r.room})</span>
-        <b>${r.choice}</b>
-        <span>รอบ ${r.round_id}</span>
-      </div>`;
   });
 
+  exportExcelBtn.disabled = false;
+
   Object.keys(roundCounts).forEach(r=>{
-    renderChart(r, roundCounts[r]);
+    renderChart(r,roundCounts[r]);
   });
 }
 
-// ================= Chart =================
+/* ================= Chart ================= */
 function renderChart(round, counts){
   if(chartsByRound[round]){
     chartsByRound[round].data.datasets[0].data = Object.values(counts);
@@ -302,49 +343,31 @@ function renderChart(round, counts){
   });
 }
 
-// ================= Filter =================
-roundFilter.onchange=()=>{
-  document.querySelectorAll(".chart-box").forEach(b=>{
-    b.style.display =
-      roundFilter.value==="all" || b.dataset.round===roundFilter.value
-      ? "block" : "none";
-  });
-};
-
-// ================= Realtime INSERT =================
+/* ================= Realtime ================= */
 supabase.channel("attendance-rt")
 .on("postgres_changes",
  { event:"INSERT", schema:"public", table:"attendance" },
  payload=>{
-   const r = payload.new;
+   exportExcelBtn.disabled = false;
 
+   const r = payload.new;
    if(!roundCounts[r.round_id]){
      roundCounts[r.round_id]={A:0,B:0,C:0,D:0,E:0};
      roundFilter.innerHTML+=`<option value="${r.round_id}">รอบ ${r.round_id}</option>`;
    }
-
    roundCounts[r.round_id][r.choice]++;
    renderChart(r.round_id, roundCounts[r.round_id]);
+ })
+.subscribe();
 
-   responsesList.insertAdjacentHTML("afterbegin",`
-     <div class="response-item">
-       <span>${r.student_id} (${r.room})</span>
-       <b>${r.choice}</b>
-       <span>รอบ ${r.round_id}</span>
-     </div>
-   `);
- }).subscribe();
-
-// ================= Reset All =================
-resetAllBtn.onclick = async () => {
-  if (!confirm("⚠️ จะลบข้อมูลทั้งหมดและเริ่มใหม่จริงหรือไม่?")) return;
+/* ================= Reset ================= */
+resetAllBtn.onclick = async ()=>{
+  if(!confirm("⚠️ จะลบข้อมูลทั้งหมดและเริ่มใหม่จริงหรือไม่?")) return;
 
   await supabase.rpc("truncate_attendance");
-
-  await supabase
-    .from("round_control")
-    .update({ current_round: 1, is_open: true })
-    .eq("id", 1);
+  await supabase.from("round_control")
+    .update({current_round:1,is_open:true})
+    .eq("id",1);
 
   Object.values(chartsByRound).forEach(c=>c.destroy());
   Object.keys(chartsByRound).forEach(k=>delete chartsByRound[k]);
@@ -353,28 +376,42 @@ resetAllBtn.onclick = async () => {
   chartsContainer.innerHTML="";
   responsesList.innerHTML="";
   roundFilter.innerHTML=`<option value="all">ทุกรอบ</option>`;
+  exportExcelBtn.disabled = true;
 
   await syncRound();
-
   alert("✅ รีเซ็ตระบบเรียบร้อย");
 };
 
-// ================= New Round =================
+/* ================= New Round ================= */
 newRoundBtn.onclick=async()=>{
   await supabase.from("round_control")
     .update({current_round:currentRound+1,is_open:true})
     .eq("id",1);
-
   await syncRound();
 };
 
-// ================= Export Excel =================
-exportExcelBtn.onclick=async()=>{
+/* ================= Export Excel ================= */
+exportExcelBtn.onclick = async ()=>{
   const { data } = await supabase.from("attendance").select("*");
-  const wb=XLSX.utils.book_new();
+  if(!data || data.length===0){
+    alert("⚠️ ไม่มีข้อมูลให้ Export");
+    return;
+  }
+
+  const selectedRound = roundFilter.value;
+  let filtered = data;
+  if(selectedRound!=="all"){
+    filtered = data.filter(r=>r.round_id==selectedRound);
+  }
+  if(filtered.length===0){
+    alert("⚠️ รอบนี้ยังไม่มีข้อมูล");
+    return;
+  }
+
+  const wb = XLSX.utils.book_new();
   const grouped={};
 
-  data.forEach(r=>{
+  filtered.forEach(r=>{
     if(!grouped[r.round_id]) grouped[r.round_id]=[];
     grouped[r.round_id].push(r);
   });
