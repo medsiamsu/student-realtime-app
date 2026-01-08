@@ -73,7 +73,7 @@ input,select{padding:10px;border-radius:8px;border:1px solid #ccc;width:220px;ma
 
 <script>
 document.addEventListener("DOMContentLoaded",()=>{
-
+const SYSTEM_RESET_KEY = "SYSTEM_RESET_DONE";
 const $=id=>document.getElementById(id);
 
 // DOM
@@ -98,20 +98,23 @@ let currentRound=1,roundOpen=true,selected=null;
 let chartsByRound={},roundCounts={};
 let roundChannel=null,attendanceChannel=null;
 let realtimeActive=false;
+let systemResetMode = false;
 
 // ---------- Realtime ----------
 function subscribeRealtime(){
-  if(realtimeActive) return;
-  realtimeActive=true;
+  if(realtimeActive || systemResetMode) return;
 
-  roundChannel=supabase.channel("round-rt")
-    .on("postgres_changes",{event:"UPDATE",schema:"public",table:"round_control"},syncRound)
+  realtimeActive = true;
+
+  roundChannel = supabase.channel("round-rt")
+    .on("postgres_changes",{event:"UPDATE",schema:"public",table:"round_control"}, syncRound)
     .subscribe();
 
-  attendanceChannel=supabase.channel("attendance-rt")
-    .on("postgres_changes",{event:"*",schema:"public",table:"attendance"},initialLoad)
+  attendanceChannel = supabase.channel("attendance-rt")
+    .on("postgres_changes",{event:"*",schema:"public",table:"attendance"}, initialLoad)
     .subscribe();
 }
+
 
 function unsubscribeRealtime(){
   if(roundChannel) supabase.removeChannel(roundChannel);
@@ -133,9 +136,9 @@ toTeacher.onclick=async()=>{
     teacherPage.classList.remove("hidden");
     subscribeRealtime();
     await syncRound();
-    initialLoad();
   }
 };
+
 
 backHome1.onclick=backHome2.onclick=()=>location.reload();
 
@@ -200,8 +203,20 @@ function hardResetTeacherUI(){
 }
 
 async function initialLoad(){
+
+  // 🔥 BLOCK 100%
+  if (systemResetMode || sessionStorage.getItem(SYSTEM_RESET_KEY) === "true") {
+    console.log("BLOCK initialLoad");
+    return;
+  }
+
   hardResetTeacherUI();
-  const {data}=await supabase.from("attendance").select("*").order("round_id");
+
+  const {data}=await supabase
+    .from("attendance")
+    .select("*")
+    .order("round_id");
+
   if(!data) return;
 
   data.forEach(r=>{
@@ -212,7 +227,9 @@ async function initialLoad(){
     roundCounts[r.round_id][r.choice]++;
   });
 
-  Object.keys(roundCounts).forEach(r=>renderChart(r,roundCounts[r]));
+  Object.keys(roundCounts).forEach(r =>
+    renderChart(r, roundCounts[r])
+  );
 }
 
 function renderChart(round,counts){
@@ -238,23 +255,30 @@ newRoundBtn.onclick=async()=>{
 };
 
 resetAllBtn.onclick = async () => {
-  if (!confirm("ล้างระบบและเริ่มใหม่ที่รอบ 1 ?")) return;
+  if (!confirm("ล้างระบบทั้งหน้าเว็บ (ไม่ลบข้อมูลในฐานข้อมูล) ?")) return;
+
+  // 🔒 ตัดไฟทั้งระบบ
+  systemResetMode = true;
 
   unsubscribeRealtime();
 
+  sessionStorage.setItem(SYSTEM_RESET_KEY, "true");
+
   await supabase
     .from("round_control")
-    .update({
-      current_round: 1,
-      is_open: true   // ✅ เปิดรอบทันที
-    })
+    .update({ current_round: 1, is_open: true })
     .eq("id", 1);
 
   hardResetTeacherUI();
+  chartsByRound = {};
+  roundCounts = {};
+  chartsContainer.innerHTML = "";
+
   await syncRound();
 
-  alert("✅ ล้างระบบแล้ว (รอบเปิดพร้อมให้นักศึกษาส่ง)");
+  alert("✅ ล้างระบบแล้ว (กราฟจะไม่เด้งอีก)");
 };
+
 
 exportExcelBtn.onclick=async()=>{
   const {data}=await supabase.from("attendance").select("*");
@@ -262,6 +286,9 @@ exportExcelBtn.onclick=async()=>{
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),"data");
   XLSX.writeFile(wb,"attendance.xlsx");
 };
+window.addEventListener("beforeunload", () => {
+  sessionStorage.removeItem(SYSTEM_RESET_KEY);
+});
 
 });
 </script>
