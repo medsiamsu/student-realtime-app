@@ -20,7 +20,6 @@ input,select{padding:10px;border-radius:8px;border:1px solid #ccc;width:220px;ma
 .choices button{width:55px;height:55px;border-radius:50%;background:#f1f5f9;color:#000;border:2px solid #cbd5e1}
 .choices button.selected{background:#2563eb;color:#fff}
 .responses-list{margin-top:10px;border:1px solid #ddd;border-radius:10px;max-height:300px;overflow:auto;text-align:left}
-.response-item{display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #eee}
 .chart-box{margin-top:25px;padding:15px;border:1px solid #e5e7eb;border-radius:12px}
 </style>
 </head>
@@ -43,8 +42,10 @@ input,select{padding:10px;border-radius:8px;border:1px solid #ccc;width:220px;ma
   <input id="room" placeholder="ห้องเรียน"><br>
   <input id="student_id" placeholder="รหัสนักศึกษา"><br>
   <div class="choices">
-    <button data-c="A">A</button><button data-c="B">B</button>
-    <button data-c="C">C</button><button data-c="D">D</button>
+    <button data-c="A">A</button>
+    <button data-c="B">B</button>
+    <button data-c="C">C</button>
+    <button data-c="D">D</button>
     <button data-c="E">E</button>
   </div><br>
   <button class="btn-green" id="submitBtn">ส่งคำตอบ</button>
@@ -57,13 +58,14 @@ input,select{padding:10px;border-radius:8px;border:1px solid #ccc;width:220px;ma
   <h2>👩‍🏫 อาจารย์</h2>
   <p>รอบปัจจุบัน: <b id="roundTeacher"></b></p>
   <button class="btn-green" id="newRoundBtn">➕ เริ่มรอบใหม่</button>
-  <button class="btn-red" id="resetAllBtn">♻️ รีเซ็ตทั้งหมด</button>
+  <button class="btn-red" id="resetAllBtn">🧹 ล้างหน้าระบบ</button>
   <button class="btn-primary" id="exportExcelBtn">📥 Export Excel</button>
   <br><br>
   <label>เลือกดูรอบ:</label>
-  <select id="roundFilter"><option value="all">ทุกรอบ</option></select>
+  <select id="roundFilter">
+    <option value="all">ทุกรอบ</option>
+  </select>
   <div id="chartsContainer"></div>
-  <div id="responsesList" class="responses-list"></div>
   <button class="btn-primary" id="backHome2">🏠 กลับ</button>
 </div>
 
@@ -83,32 +85,61 @@ const submitBtn=$("submitBtn"),newRoundBtn=$("newRoundBtn"),
 const room=$("room"),student_id=$("student_id"),status=$("status");
 const currentRoundLabel=$("currentRoundLabel"),
       roundStudent=$("roundStudent"),roundTeacher=$("roundTeacher");
-const chartsContainer=$("chartsContainer"),
-      responsesList=$("responsesList"),roundFilter=$("roundFilter");
+const chartsContainer=$("chartsContainer"),roundFilter=$("roundFilter");
 
 // Supabase
 const supabase=window.supabase.createClient(
-"https://dmubpvmqslemshqlbcsy.supabase.co",
-"YOUR_ANON_KEY"
+  "https://nbhxeojflxxmowiaogjh.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5iaHhlb2pmbHh4bW93aWFvZ2poIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4MzQ0ODAsImV4cCI6MjA4MzQxMDQ4MH0.eOX4LtcSzetMbOFTKaH8ElWJx0l8V2SLFgeb0a3IVWw"
 );
 
 // State
 let currentRound=1,roundOpen=true,selected=null;
-let isResetting=false;
-const chartsByRound={},roundCounts={};
+let chartsByRound={},roundCounts={};
+let roundChannel=null,attendanceChannel=null;
+let realtimeActive=false;
 
-// Navigation
-toStudent.onclick=()=>{homePage.classList.add("hidden");studentPage.classList.remove("hidden")};
-toTeacher.onclick=()=>{
+// ---------- Realtime ----------
+function subscribeRealtime(){
+  if(realtimeActive) return;
+  realtimeActive=true;
+
+  roundChannel=supabase.channel("round-rt")
+    .on("postgres_changes",{event:"UPDATE",schema:"public",table:"round_control"},syncRound)
+    .subscribe();
+
+  attendanceChannel=supabase.channel("attendance-rt")
+    .on("postgres_changes",{event:"*",schema:"public",table:"attendance"},initialLoad)
+    .subscribe();
+}
+
+function unsubscribeRealtime(){
+  if(roundChannel) supabase.removeChannel(roundChannel);
+  if(attendanceChannel) supabase.removeChannel(attendanceChannel);
+  realtimeActive=false;
+}
+
+// ---------- Navigation ----------
+toStudent.onclick=async()=>{
+  homePage.classList.add("hidden");
+  studentPage.classList.remove("hidden");
+  subscribeRealtime();
+  await syncRound();
+};
+
+toTeacher.onclick=async()=>{
   if(prompt("รหัสอาจารย์")==="2568"){
     homePage.classList.add("hidden");
     teacherPage.classList.remove("hidden");
+    subscribeRealtime();
+    await syncRound();
     initialLoad();
   }
 };
+
 backHome1.onclick=backHome2.onclick=()=>location.reload();
 
-// Choice
+// ---------- Choice ----------
 document.querySelectorAll(".choices button").forEach(b=>{
   b.onclick=()=>{
     document.querySelectorAll(".choices button").forEach(x=>x.classList.remove("selected"));
@@ -117,38 +148,33 @@ document.querySelectorAll(".choices button").forEach(b=>{
   };
 });
 
-// Sync round
+// ---------- Round ----------
 async function syncRound(){
   const {data}=await supabase.from("round_control").select("*").eq("id",1).single();
+  if(!data) return;
   currentRound=data.current_round;
   roundOpen=data.is_open;
   currentRoundLabel.innerText=roundStudent.innerText=roundTeacher.innerText=currentRound;
-  submitBtn.disabled=!roundOpen;
+  submitBtn.disabled = false; // ไม่ disable ปุ่ม
 }
 syncRound();
 
-// Student submit (🔥 บล็อกจริง)
+// ---------- Student ----------
 submitBtn.onclick=async()=>{
   await syncRound();
-  if(!roundOpen){alert("❌ รอบนี้ปิดแล้ว");return;}
+  if(!roundOpen){alert("❌ รอบปิดแล้ว");return;}
   if(!room.value||!student_id.value||!selected){alert("กรอกข้อมูลให้ครบ");return;}
 
-  submitBtn.disabled=true;
-  status.innerText="⏳ กำลังส่ง...";
-
-  const {data:ex}=await supabase.from("attendance")
+  const {data:ex}=await supabase
+    .from("attendance")
     .select("id")
     .eq("student_id",student_id.value)
     .eq("round_id",currentRound)
     .maybeSingle();
 
-  if(ex){
-    status.innerText="⚠️ ส่งแล้ว";
-    submitBtn.disabled=false;
-    return;
-  }
+  if(ex){status.innerText="⚠️ ส่งแล้ว";return;}
 
-  await supabase.from("attendance").insert({
+  const {error}=await supabase.from("attendance").insert({
     room:room.value,
     student_id:student_id.value,
     round_id:currentRound,
@@ -156,44 +182,42 @@ submitBtn.onclick=async()=>{
     choice:selected
   });
 
+  if(error){
+    status.innerText="❌ ส่งไม่สำเร็จ";
+    alert(error.message);
+    return;
+  }
+
   status.innerText="✅ ส่งแล้ว";
 };
 
-// Reset UI
+// ---------- Teacher UI ----------
 function hardResetTeacherUI(){
   Object.values(chartsByRound).forEach(c=>c.destroy());
-  Object.keys(chartsByRound).forEach(k=>delete chartsByRound[k]);
-  Object.keys(roundCounts).forEach(k=>delete roundCounts[k]);
+  chartsByRound={};roundCounts={};
   chartsContainer.innerHTML="";
-  responsesList.innerHTML="";
   roundFilter.innerHTML=`<option value="all">ทุกรอบ</option>`;
 }
 
-// Load data
 async function initialLoad(){
   hardResetTeacherUI();
   const {data}=await supabase.from("attendance").select("*").order("round_id");
+  if(!data) return;
+
   data.forEach(r=>{
     if(!roundCounts[r.round_id]){
       roundCounts[r.round_id]={A:0,B:0,C:0,D:0,E:0};
       roundFilter.innerHTML+=`<option value="${r.round_id}">รอบ ${r.round_id}</option>`;
     }
     roundCounts[r.round_id][r.choice]++;
-    responsesList.innerHTML+=`
-      <div class="response-item">
-        <span>${r.student_id} (${r.room})</span>
-        <b>${r.choice}</b>
-        <span>รอบ ${r.round_id}</span>
-      </div>`;
   });
+
   Object.keys(roundCounts).forEach(r=>renderChart(r,roundCounts[r]));
 }
 
-// Chart
 function renderChart(round,counts){
   const box=document.createElement("div");
   box.className="chart-box";
-  box.dataset.round=round;
   box.innerHTML=`<h4>รอบที่ ${round}</h4>`;
   const c=document.createElement("canvas");
   box.appendChild(c);
@@ -205,62 +229,39 @@ function renderChart(round,counts){
   });
 }
 
-// Filter
-roundFilter.onchange=()=>{
-  document.querySelectorAll(".chart-box").forEach(b=>{
-    b.style.display=(roundFilter.value==="all"||b.dataset.round===roundFilter.value)?"block":"none";
-  });
-};
-
-// New round (🔥 sync ทันที)
+// ---------- Buttons ----------
 newRoundBtn.onclick=async()=>{
   await supabase.from("round_control")
     .update({current_round:currentRound+1,is_open:true})
     .eq("id",1);
-  await syncRound();
+  syncRound();
 };
 
-// Reset
-resetAllBtn.onclick=async()=>{
-  if(!confirm("⚠️ รีเซ็ตระบบทั้งหมด?"))return;
-  isResetting=true;
+resetAllBtn.onclick = async () => {
+  if (!confirm("ล้างระบบและเริ่มใหม่ที่รอบ 1 ?")) return;
+
+  unsubscribeRealtime();
+
+  await supabase
+    .from("round_control")
+    .update({
+      current_round: 1,
+      is_open: true   // ✅ เปิดรอบทันที
+    })
+    .eq("id", 1);
+
   hardResetTeacherUI();
-  await supabase.rpc("truncate_attendance");
-  await supabase.from("round_control")
-    .update({current_round:1,is_open:true})
-    .eq("id",1);
+  await syncRound();
+
+  alert("✅ ล้างระบบแล้ว (รอบเปิดพร้อมให้นักศึกษาส่ง)");
 };
 
-// Export
 exportExcelBtn.onclick=async()=>{
   const {data}=await supabase.from("attendance").select("*");
-  const wb=XLSX.utils.book_new(),g={};
-  data.forEach(r=>{if(!g[r.round_id])g[r.round_id]=[];g[r.round_id].push(r)});
-  Object.keys(g).forEach(r=>{
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(g[r]),"Round_"+r);
-  });
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),"data");
   XLSX.writeFile(wb,"attendance.xlsx");
 };
-
-// Realtime: รอบ
-supabase.channel("round-rt")
-.on("postgres_changes",{event:"UPDATE",schema:"public",table:"round_control"},()=>{
-  syncRound();
-  if(!isResetting && !teacherPage.classList.contains("hidden")){
-    initialLoad();
-  }
-  isResetting=false;
-})
-.subscribe();
-
-// Realtime: attendance (🔥 สำคัญ)
-supabase.channel("attendance-rt")
-.on("postgres_changes",{event:"*",schema:"public",table:"attendance"},()=>{
-  if(!teacherPage.classList.contains("hidden")){
-    initialLoad();
-  }
-})
-.subscribe();
 
 });
 </script>
