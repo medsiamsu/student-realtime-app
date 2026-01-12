@@ -113,6 +113,8 @@ let currentSession=null;
 let roundOpen=true;
 let selected=null;
 let chartsByRound={};
+let roundCounts = {};
+
 
 // ---------- Navigation ----------
 toStudent.onclick=async()=>{
@@ -193,6 +195,7 @@ submitBtn.onclick=async()=>{
 async function loadCharts(){
   chartsContainer.innerHTML="";
   chartsByRound={};
+  roundCounts={}; // ✅ reset + sync state
 
   const {data} = await supabase
     .from("attendance")
@@ -202,20 +205,17 @@ async function loadCharts(){
 
   if(!data || data.length===0) return;
 
-  const roundMap = {};
-
   data.forEach(r=>{
-    if(!roundMap[r.round_id]){
-      roundMap[r.round_id]={A:0,B:0,C:0,D:0,E:0};
+    if(!roundCounts[r.round_id]){
+      roundCounts[r.round_id]={A:0,B:0,C:0,D:0,E:0};
     }
-    roundMap[r.round_id][r.choice]++;
+    roundCounts[r.round_id][r.choice]++;
   });
 
-  Object.keys(roundMap).forEach(round=>{
-    renderChart(round, roundMap[round]);
+  Object.keys(roundCounts).forEach(round=>{
+    renderChart(round, roundCounts[round]);
   });
 }
-
 
 function renderChart(round, counts){
   // ถ้ามีกราฟรอบนี้อยู่แล้ว → อัปเดตข้อมูล
@@ -290,17 +290,18 @@ supabase
       table: "attendance"
     },
     payload => {
-      const r = payload.new;
+  const r = payload.new;
 
-      // นับเฉพาะรอบที่มีอยู่
-      if(!roundCounts[r.round_id]){
-        roundCounts[r.round_id]={A:0,B:0,C:0,D:0,E:0};
-      }
+  // ❗ กรองเฉพาะ session ปัจจุบัน
+  if (r.session_id !== currentSession) return;
 
-      roundCounts[r.round_id][r.choice]++;
+  if (!roundCounts[r.round_id]) {
+    roundCounts[r.round_id] = { A:0, B:0, C:0, D:0, E:0 };
+  }
 
-      renderChart(r.round_id, roundCounts[r.round_id]);
-    }
+  roundCounts[r.round_id][r.choice]++;
+  renderChart(r.round_id, roundCounts[r.round_id]);
+}
   )
   .subscribe();
 });
