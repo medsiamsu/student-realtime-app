@@ -15,12 +15,14 @@ body{font-family:'Sarabun',sans-serif;background:#e0e7ff;margin:0;display:flex;j
 .container{background:#fff;margin:20px;padding:20px;border-radius:16px;width:100%;max-width:950px;text-align:center}
 .hidden{display:none}
 button{padding:10px 18px;border-radius:8px;border:0;color:#fff;margin:5px;cursor:pointer}
-.btn-primary{background:#2563eb}.btn-green{background:#10b981}.btn-purple{background:#8b5cf6}
+.btn-primary{background:#2563eb}
+.btn-green{background:#10b981}
+.btn-purple{background:#8b5cf6}
+.btn-red{background:#ef4444}
 input,select{padding:10px;border-radius:8px;border:1px solid #ccc;width:220px;margin-bottom:8px}
 .choices button{width:55px;height:55px;border-radius:50%;background:#f1f5f9;color:#000;border:2px solid #cbd5e1}
 .choices button.selected{background:#2563eb;color:#fff}
 .chart-box{margin-top:25px;padding:15px;border:1px solid #e5e7eb;border-radius:12px}
-.btn-red{background:#ef4444}
 </style>
 </head>
 
@@ -30,7 +32,10 @@ input,select{padding:10px;border-radius:8px;border:1px solid #ccc;width:220px;ma
 <!-- HOME -->
 <div id="homePage">
   <h1>📘 ระบบตอบคำถาม Realtime</h1>
-  <h3>รอบปัจจุบัน: <span id="currentRoundLabel"></span></h3>
+  <h3>
+    รอบปัจจุบัน: <span id="currentRoundLabel"></span><br>
+    <small>Session: <span id="currentSessionLabel"></span></small>
+  </h3>
   <button class="btn-green" id="toStudent">🎓 นักศึกษา</button>
   <button class="btn-purple" id="toTeacher">👩‍🏫 อาจารย์</button>
 </div>
@@ -38,7 +43,11 @@ input,select{padding:10px;border-radius:8px;border:1px solid #ccc;width:220px;ma
 <!-- STUDENT -->
 <div id="studentPage" class="hidden">
   <h2>🎓 นักศึกษา</h2>
-  <p>รอบปัจจุบัน: <b id="roundStudent"></b></p>
+  <p>
+    รอบปัจจุบัน: <b id="roundStudent"></b><br>
+    Session: <b id="sessionStudent"></b>
+  </p>
+
   <input id="room" placeholder="ห้องเรียน"><br>
   <input id="student_id" placeholder="รหัสนักศึกษา"><br>
 
@@ -58,16 +67,14 @@ input,select{padding:10px;border-radius:8px;border:1px solid #ccc;width:220px;ma
 <!-- TEACHER -->
 <div id="teacherPage" class="hidden">
   <h2>👩‍🏫 อาจารย์</h2>
-  <p>รอบปัจจุบัน: <b id="roundTeacher"></b></p>
-  <button class="btn-green" id="newRoundBtn">➕ เริ่มรอบใหม่</button>
-  <button class="btn-red" id="resetSystemBtn">🧹 ล้างระบบเริ่มใหม่</button>
-  <button class="btn-primary" id="exportExcelBtn">📥 Export Excel</button>
+  <p>
+    รอบปัจจุบัน: <b id="roundTeacher"></b><br>
+    Session: <b id="sessionTeacher"></b>
+  </p>
 
-  <br><br>
-  <label>เลือกดูรอบ:</label>
-  <select id="roundFilter">
-    <option value="all">ทุกรอบ</option>
-  </select>
+  <button class="btn-green" id="newRoundBtn">➕ เริ่มรอบใหม่</button>
+  <button class="btn-red" id="resetSystemBtn">🧹 เริ่มคาบเรียนใหม่</button>
+  <button class="btn-primary" id="exportExcelBtn">📥 Export Excel</button>
 
   <div id="chartsContainer"></div>
   <button class="btn-primary" id="backHome2">🏠 กลับ</button>
@@ -84,10 +91,15 @@ const $ = id => document.getElementById(id);
 const homePage=$("homePage"), studentPage=$("studentPage"), teacherPage=$("teacherPage");
 const toStudent=$("toStudent"), toTeacher=$("toTeacher");
 const backHome1=$("backHome1"), backHome2=$("backHome2");
-const submitBtn=$("submitBtn"), newRoundBtn=$("newRoundBtn"), exportExcelBtn=$("exportExcelBtn");
+const submitBtn=$("submitBtn"), newRoundBtn=$("newRoundBtn");
+const resetSystemBtn=$("resetSystemBtn"), exportExcelBtn=$("exportExcelBtn");
+
 const room=$("room"), student_id=$("student_id"), status=$("status");
-const currentRoundLabel=$("currentRoundLabel"), roundStudent=$("roundStudent"), roundTeacher=$("roundTeacher");
-const chartsContainer=$("chartsContainer"), roundFilter=$("roundFilter");
+const currentRoundLabel=$("currentRoundLabel");
+const currentSessionLabel=$("currentSessionLabel");
+const roundStudent=$("roundStudent"), roundTeacher=$("roundTeacher");
+const sessionStudent=$("sessionStudent"), sessionTeacher=$("sessionTeacher");
+const chartsContainer=$("chartsContainer");
 
 // Supabase
 const supabase = window.supabase.createClient(
@@ -96,31 +108,16 @@ const supabase = window.supabase.createClient(
 );
 
 // State
-let currentRound=1, roundOpen=true, selected=null;
-let chartsByRound={}, roundCounts={};
-let roundChannel=null, attendanceChannel=null;
-let realtimeActive=false;
-let chartLocked = localStorage.getItem("chartLocked") === "true";
-
-// ---------- Realtime ----------
-function subscribeRealtime(){
-  if(realtimeActive) return;
-  realtimeActive=true;
-
-  roundChannel = supabase.channel("round-rt")
-    .on("postgres_changes",{event:"UPDATE",schema:"public",table:"round_control"}, syncRound)
-    .subscribe();
-
-  attendanceChannel = supabase.channel("attendance-rt")
-    .on("postgres_changes",{event:"*",schema:"public",table:"attendance"}, initialLoad)
-    .subscribe();
-}
+let currentRound=1;
+let currentSession=null;
+let roundOpen=true;
+let selected=null;
+let chartsByRound={};
 
 // ---------- Navigation ----------
 toStudent.onclick=async()=>{
   homePage.classList.add("hidden");
   studentPage.classList.remove("hidden");
-  subscribeRealtime();
   await syncRound();
 };
 
@@ -128,9 +125,8 @@ toTeacher.onclick=async()=>{
   if(prompt("รหัสอาจารย์")==="2568"){
     homePage.classList.add("hidden");
     teacherPage.classList.remove("hidden");
-    subscribeRealtime();
     await syncRound();
-    await initialLoad();
+    await loadCharts();
   }
 };
 
@@ -145,14 +141,24 @@ document.querySelectorAll(".choices button").forEach(b=>{
   };
 });
 
-// ---------- Round ----------
+// ---------- Sync Round + Session ----------
 async function syncRound(){
-  const {data}=await supabase.from("round_control").select("*").eq("id",1).single();
+  const {data}=await supabase
+    .from("round_control")
+    .select("*")
+    .eq("id",1)
+    .single();
+
   if(!data) return;
+
   currentRound=data.current_round;
+  currentSession=data.session_id;
   roundOpen=data.is_open;
+
   currentRoundLabel.innerText=roundStudent.innerText=roundTeacher.innerText=currentRound;
+  currentSessionLabel.innerText=sessionStudent.innerText=sessionTeacher.innerText=currentSession;
 }
+
 syncRound();
 
 // ---------- Student ----------
@@ -166,66 +172,60 @@ submitBtn.onclick=async()=>{
     .select("id")
     .eq("student_id",student_id.value)
     .eq("round_id",currentRound)
+    .eq("session_id",currentSession)
     .maybeSingle();
 
   if(ex){ status.innerText="⚠️ ส่งแล้ว"; return; }
 
   const {error}=await supabase.from("attendance").insert({
-    room:room.value,
-    student_id:student_id.value,
-    round_id:currentRound,
-    question_number:1,
-    choice:selected
+    session_id: currentSession,
+    room: room.value,
+    student_id: student_id.value,
+    round_id: currentRound,
+    question_number: 1,
+    choice: selected
   });
 
   status.innerText = error ? "❌ ส่งไม่สำเร็จ" : "✅ ส่งแล้ว";
 };
 
-// ---------- Teacher ----------
-async function initialLoad(){
-  if (chartLocked) {
-    console.log("⛔ กราฟถูกล็อก ไม่โหลดจากฐาน");
+// ---------- Charts ----------
+async function loadCharts(){
+  chartsContainer.innerHTML="";
+  chartsByRound={};
+
+  const {data} = await supabase
+    .from("attendance")
+    .select("*")
+    .eq("session_id", currentSession)
+    .order("round_id");
+
+  if(!data || data.length===0) return;
+
+  const roundMap = {};
+
+  data.forEach(r=>{
+    if(!roundMap[r.round_id]){
+      roundMap[r.round_id]={A:0,B:0,C:0,D:0,E:0};
+    }
+    roundMap[r.round_id][r.choice]++;
+  });
+
+  Object.keys(roundMap).forEach(round=>{
+    renderChart(round, roundMap[round]);
+  });
+}
+
+
+function renderChart(round, counts){
+  // ถ้ามีกราฟรอบนี้อยู่แล้ว → อัปเดตข้อมูล
+  if(chartsByRound[round]){
+    chartsByRound[round].data.datasets[0].data = Object.values(counts);
+    chartsByRound[round].update();
     return;
   }
 
-  chartsContainer.innerHTML="";
-  chartsByRound={};
-  roundCounts={};
-  roundFilter.innerHTML=`<option value="all">ทุกรอบ</option>`;
-
-  const {data}=await supabase
-    .from("attendance")
-    .select("*")
-    .order("round_id");
-
-  if(!data) return;
-
-  data.forEach(r=>{
-    if(!roundCounts[r.round_id]){
-      roundCounts[r.round_id]={A:0,B:0,C:0,D:0,E:0};
-      roundFilter.innerHTML+=
-        `<option value="${r.round_id}">รอบ ${r.round_id}</option>`;
-    }
-    roundCounts[r.round_id][r.choice]++;
-  });
-
-  applyRoundFilter();
-}
-
-function applyRoundFilter(){
-  chartsContainer.innerHTML="";
-  const r=roundFilter.value;
-
-  if(r==="all"){
-    Object.keys(roundCounts).forEach(x=>renderChart(x,roundCounts[x]));
-  }else if(roundCounts[r]){
-    renderChart(r,roundCounts[r]);
-  }
-}
-
-roundFilter.onchange=applyRoundFilter;
-
-function renderChart(round,counts){
+  // ถ้ายังไม่มี → สร้างใหม่
   const box=document.createElement("div");
   box.className="chart-box";
   box.innerHTML=`<h4>รอบที่ ${round}</h4>`;
@@ -235,56 +235,74 @@ function renderChart(round,counts){
 
   chartsByRound[round]=new Chart(c,{
     type:"pie",
-    data:{labels:Object.keys(counts),datasets:[{data:Object.values(counts)}]}
+    data:{
+      labels:Object.keys(counts),
+      datasets:[{data:Object.values(counts)}]
+    }
   });
 }
 
 // ---------- Buttons ----------
 newRoundBtn.onclick=async()=>{
   await supabase.from("round_control")
-    .update({current_round:currentRound+1,is_open:true})
-    .eq("id",1);
-  syncRound();
-};
-
-$("resetSystemBtn").onclick = async () => {
-
-  if(!confirm("ล้างระบบ + เริ่มรอบใหม่เป็นรอบที่ 1 ?")) return;
-
-  // 🔒 ล็อกกราฟแบบถาวร
-  localStorage.setItem("chartLocked", "true");
-  chartLocked = true;
-
-  // 🧨 ทำลายกราฟ
-  Object.values(chartsByRound).forEach(ch=>{
-    if(ch) ch.destroy();
-  });
-
-  // 🧼 ล้าง UI
-  chartsByRound = {};
-  roundCounts = {};
-  chartsContainer.innerHTML="";
-  roundFilter.innerHTML = `<option value="all">ทุกรอบ</option>`;
-
-  // 🔄 รีเซ็ทรอบกลับไป 1
-  await supabase
-    .from("round_control")
-    .update({ current_round: 1, is_open: true })
+    .update({current_round: currentRound+1})
     .eq("id",1);
 
   await syncRound();
-
-  alert("✅ ล้างระบบแล้ว กราฟจะไม่กลับมาอีก");
+  await loadCharts();
 };
 
+resetSystemBtn.onclick=async()=>{
+  if(!confirm("เริ่มคาบเรียนใหม่ (session ใหม่) ?")) return;
+
+  const newSession = Date.now();
+
+  await supabase.from("round_control")
+    .update({
+      current_round: 1,
+      is_open: true,
+      session_id: newSession
+    })
+    .eq("id",1);
+
+  chartsContainer.innerHTML="";
+  chartsByRound={};
+
+  await syncRound();
+  alert("✅ เริ่มคาบใหม่เรียบร้อย");
+};
 
 exportExcelBtn.onclick=async()=>{
   const {data}=await supabase.from("attendance").select("*");
   const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),"data");
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),"attendance");
   XLSX.writeFile(wb,"attendance.xlsx");
 };
 
+//---------- Realtime ----------
+supabase
+  .channel("attendance-realtime")
+  .on(
+    "postgres_changes",
+    {
+      event: "INSERT",
+      schema: "public",
+      table: "attendance"
+    },
+    payload => {
+      const r = payload.new;
+
+      // นับเฉพาะรอบที่มีอยู่
+      if(!roundCounts[r.round_id]){
+        roundCounts[r.round_id]={A:0,B:0,C:0,D:0,E:0};
+      }
+
+      roundCounts[r.round_id][r.choice]++;
+
+      renderChart(r.round_id, roundCounts[r.round_id]);
+    }
+  )
+  .subscribe();
 });
 </script>
 </body>
